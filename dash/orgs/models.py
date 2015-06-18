@@ -7,6 +7,7 @@ import random
 
 from dash.api import API
 from dash.dash_email import send_dash_email
+from dash.utils import temba_client_flow_results_serializer, datetime_to_ms
 from datetime import timedelta, datetime
 from django.contrib.auth.models import User, Group
 from django.core.cache import cache
@@ -17,6 +18,15 @@ from django.conf import settings
 from smartmin.models import SmartModel
 from temba import TembaClient
 
+STATE = 1
+DISTRICT = 2
+
+# we cache boundary data for a month at a time
+BOUNDARY_CACHE_TIME = getattr(settings, 'API_BOUNDARY_CACHE_TIME', 60 * 60 * 24 * 30)
+
+BOUNDARY_CACHE_KEY = 'org:%d:boundaries'
+BOUNDARY_LEVEL_1_KEY = 'geojson:%d'
+BOUNDARY_LEVEL_2_KEY = 'geojson:%d:%s'
 
 class Org(SmartModel):
     name = models.CharField(verbose_name=_("Name"), max_length=128,
@@ -126,99 +136,64 @@ class Org(SmartModel):
     def get_api(self):
         return API(self)
 
-    def get_contact_field_results(self, contact_field, segment):
-        return self.get_api().get_contact_field_results(contact_field, segment)
+    def build_boundaries(self):
 
-    def get_most_active_regions(self):
-        cache_key = 'most_active_regions:%d' % self.id
-        active_regions = cache.get(cache_key, None)
+        this_time = datetime.now()
+        temba_client = self.get_temba_client()
+        client_boundaries = temba_client.get_boundaries()
 
-        if active_regions is None:
-            regions = self.get_contact_field_results(self.get_config('gender_label'), dict(location="State"))
-            active_regions = dict()
+        # we now build our cached versions of level 1 (all states) and level 2 (all districts for each state) geojson
+        states = []
+        districts_by_state = dict()
+        for boundary in client_boundaries:
+            if boundary.level == STATE:
+                states.append(boundary)
+            elif boundary.level == DISTRICT:
+                osm_id = boundary.parent
+                if not osm_id in districts_by_state:
+                    districts_by_state[osm_id] = []
 
-            if not regions:
-                return []
+                districts = districts_by_state[osm_id]
+                districts.append(boundary)
 
-            for region in regions:
-                active_regions[region['label']] = region['set'] + region['unset']
+        # mini function to convert a list of boundary objects to geojson
+        def to_geojson(boundary_list):
+            features = [dict(type='Feature', geometry=dict(type=b.geometry.type, coordinates=b.geometry.coordinates),
+                             properties=dict(name=b.name, id=b.boundary, level=b.level)) for b in boundary_list]
+            return dict(type='FeatureCollection', features=features)
 
-            tuples = [(k, v) for k, v in active_regions.iteritems()]
-            tuples.sort(key=lambda t: t[1], reverse=True)
+        boundaries = dict()
+        boundaries[BOUNDARY_LEVEL_1_KEY % self.id] = to_geojson(states)
 
-            active_regions = [k for k, v in tuples]
-            cache.set(cache_key, active_regions, 3600 * 24)
+        for state_id in districts_by_state.keys():
+            boundaries[BOUNDARY_LEVEL_2_KEY % (self.id, state_id)] = to_geojson(districts_by_state[state_id])
 
-        return active_regions
+        key = BOUNDARY_CACHE_KEY % self.pk
+        cache.set(key, {'time': datetime_to_ms(this_time), 'results': boundaries}, BOUNDARY_CACHE_TIME)
 
-    def organize_categories_data(self, contact_field, api_data):
+        return boundaries
 
-        cleaned_categories = []
-        interval_dict = dict()
-        now = timezone.now()
-        # if we have the age_label; Ignore invalid years and make intervals
-        if api_data and contact_field.lower() == self.get_config('born_label').lower():
-            current_year = now.year
+    def get_boundaries(self):
+        key = BOUNDARY_CACHE_KEY % self.pk
+        cached_value = cache.get(key, None)
+        if cached_value:
+            return cached_value['results']
 
-            for elt in api_data[0]['categories']:
-                year_label = elt['label']
-                try:
-                    if len(year_label) == 4 and int(float(year_label)) > 1900:
-                        decade = int(math.floor((current_year - int(elt['label'])) / 10)) * 10
-                        key = "%s-%s" % (decade, decade+10)
-                        if interval_dict.get(key, None):
-                            interval_dict[key] += elt['count']
-                        else:
-                            interval_dict[key] = elt['count']
-                except ValueError:
-                    pass
+    def get_country_geojson(self):
+        boundaries = self.get_boundaries()
+        if boundaries:
+            key = BOUNDARY_LEVEL_1_KEY % self.id
+            return boundaries.get(key, None)
 
-            for obj_key in interval_dict.keys():
-                cleaned_categories.append(dict(label=obj_key, count=interval_dict[obj_key] ))
+    def get_state_geojson(self, state_id):
+        boundaries = self.get_boundaries()
+        if boundaries:
+            key = BOUNDARY_LEVEL_2_KEY % (self.id, state_id)
+            return boundaries.get(key, None)
 
-            api_data[0]['categories'] = sorted(cleaned_categories, key=lambda k: int(k['label'].split('-')[0]))
-
-        elif api_data and contact_field.lower() == self.get_config('registration_label').lower():
-            six_months_ago = now - timedelta(days=180)
-            six_months_ago = six_months_ago - timedelta(six_months_ago.weekday())
-            tz = pytz.timezone('UTC')
-
-            for elt in api_data[0]['categories']:
-                time_str =  elt['label']
-                parsed_time = tz.localize(datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%SZ'))
-
-                # this is in the range we care about
-                if parsed_time > six_months_ago:
-                    # get the week of the year
-                    dict_key = parsed_time.strftime("%W")
-
-                    if interval_dict.get(dict_key, None):
-                        interval_dict[dict_key] += elt['count']
-                    else:
-                        interval_dict[dict_key] = elt['count']
-
-            # build our final dict using week numbers
-            categories = []
-            start = six_months_ago
-            while start < timezone.now():
-                week_dict = start.strftime("%W")
-                count = interval_dict.get(week_dict, 0)
-                categories.append(dict(label=start.strftime("%m/%d/%y"), count=count))
-
-                start = start + timedelta(days=7)
-
-            api_data[0]['categories'] = categories
-
-        elif api_data and contact_field.lower() == self.get_config('occupation_label').lower():
-
-            for elt in api_data[0]['categories']:
-                if len(cleaned_categories) < 9 and elt['label'] != "All Responses":
-                    cleaned_categories.append(elt)
-
-            api_data[0]['categories'] = cleaned_categories
-
-        return api_data
-
+    def get_top_level_geojson_ids(self):
+        org_country_boundaries = self.get_country_geojson()
+        return [elt['properties']['id'] for elt in org_country_boundaries['features']]
 
     @classmethod
     def create_user(cls, email, password):
@@ -307,7 +282,6 @@ class Invitation(SmartModel):
         from .tasks import send_invitation_email_task
         send_invitation_email_task(self.id)
 
-
     def send_email(self):
         # no=op if we do not know the email
         if not self.email:
@@ -331,7 +305,6 @@ BACKGROUND_TYPES = (('B', _("Banner")),
 class OrgBackground(SmartModel):
     org = models.ForeignKey(Org, verbose_name=_("Org"), related_name="backgrounds",
                             help_text=_("The organization in which the image will be used"))
-
 
     name = models.CharField(verbose_name=_("Name"), max_length=128,
                             help_text=_("The name to describe this background"))

@@ -26,6 +26,7 @@ from django.utils import timezone
 from mock import patch, Mock
 from smartmin.tests import SmartminTest
 from temba import TembaClient
+from temba.types import Geometry, Boundary
 
 
 class UserTest(SmartminTest):
@@ -337,262 +338,67 @@ class OrgTest(DashTest):
         self.assertEquals(self.org.get_config('field_name'), 'field_value')
         self.assertEquals(self.org.get_config('other_field_name'), 'other_value')
 
-    def test_get_most_active_regions(self):
-        self.org.set_config('gender_label', 'Gender')
+    def test_build_boundaries(self):
+        boundaries = dict()
+        boundaries['geojson:%d' % self.org.pk] = dict(
+            type="FeatureCollection",
+            features=[dict(type="Feature",
+                           geometry=dict(type='MultiPolygon', coordinates=[[1, 2], [3, 4]]),
+                           properties=dict(name='Burundi', id="R195269", level=1))])
 
-        with patch('dash.api.API.get_contact_field_results') as mock:
-            mock.return_value = [dict(label='LABEL_1', set=15, unset=5),
-                                 dict(label='LABEL_2', set=100, unset=200),
-                                 dict(label='LABEL_3', set=50, unset=30)]
+        boundaries['geojson:%d:%s' % (self.org.pk, "R195269")] = dict(
+            type="FeatureCollection",
+            features=[dict(type="Feature",
+                           geometry=dict(type='MultiPolygon', coordinates=[[5, 6], [7, 8]]),
+                           properties=dict(name='Bujumbura', id="R195270", level=2))])
 
-            self.assertEquals(self.org.get_most_active_regions(), ['LABEL_2', 'LABEL_3', 'LABEL_1'])
-            mock.assert_called_once_with('Gender', dict(location='State'))
+        with patch('dash.orgs.models.datetime_to_ms') as mock_datetime_to_ms:
+            mock_datetime_to_ms.return_value = 500
 
-        with patch('dash.api.API.get_contact_field_results') as mock:
-            self.clear_cache()
-            mock.return_value = None
+            with patch('django.core.cache.cache.set') as cache_set_mock:
+                cache_set_mock.return_value = "Set"
 
-            self.assertEquals(self.org.get_most_active_regions(), [])
-            mock.assert_called_once_with('Gender', dict(location='State'))
+                with patch('dash.orgs.models.TembaClient.get_boundaries') as mock_client:
+                    geometry1 = Geometry.create(type='MultiPolygon', coordinates=[[1, 2], [3, 4]])
+                    geometry2 = Geometry.create(type='MultiPolygon', coordinates=[[5, 6], [7, 8]])
+                    level_1_boundary = Boundary.create(boundary='R195269', name='Burundi', level=1, parent="",
+                                                       geometry=geometry1)
+                    level_2_boundary = Boundary.create(boundary='R195270', name='Bujumbura', level=2, parent="R195269",
+                                                       geometry=geometry2)
 
-    def test_organize_categories_data(self):
+                    mock_client.return_value = [level_1_boundary, level_2_boundary]
 
-        self.org.set_config('born_label', "Born")
-        self.org.set_config('registration_label', "Registration")
-        self.org.set_config('occupation_label', "Occupation")
+                    self.assertEqual(self.org.build_boundaries(), boundaries)
+                    cache_set_mock.assert_called_with('org:%d:boundaries' % self.org.pk, dict(time=500,
+                                                                                              results=boundaries),
+                                                      60 * 60 * 24 * 30)
 
-        self.assertEquals(self.org.organize_categories_data('random_field', []), [])
-        self.assertEquals(self.org.organize_categories_data('born', []), [])
-        self.assertEquals(self.org.organize_categories_data('registration', []), [])
-        self.assertEquals(self.org.organize_categories_data('occupation', []), [])
-        self.assertEquals(self.org.organize_categories_data('random_field', ['random_api_data']), ['random_api_data'])
+        with patch('django.core.cache.cache.get') as cache_get_mock:
+            cache_get_mock.return_value = None
+            self.assertIsNone(self.org.get_boundaries())
 
-        tz = pytz.timezone('Africa/Kigali')
-        with patch.object(timezone, 'now', return_value=tz.localize(datetime(2014, 9, 26, 10, 20, 30, 40))):
+            cache_get_mock.return_value = dict(time=500, results=boundaries)
+            self.assertEqual(self.org.get_boundaries(), boundaries)
 
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[])]), [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='123',
-                                                                                               count=50)])]),
-                              [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='12345',
-                                                                                               count=50)])]),
-                              [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='abcd',
-                                                                                               count=50)])]),
-                              [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='1899',
-                                                                                               count=50)])]),
-                              [dict(categories=[])])
+        with patch('dash.orgs.models.Org.get_boundaries') as mock_get_boundaries:
+            mock_get_boundaries.return_value = None
 
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='2010',
-                                                                                               count=50)])]),
-                              [dict(categories=[dict(label='0-10', count=50)])])
+            self.assertIsNone(self.org.get_country_geojson())
+            self.assertIsNone(self.org.get_state_geojson("R195269"))
 
-            self.assertEquals(self.org.organize_categories_data('born', [dict(categories=[dict(label='2000',
-                                                                                               count=50)])]),
-                              [dict(categories=[dict(label='10-20', count=50)])])
-
-            born_api_data = [dict(categories=[dict(label='1700', count=10),
-                                              dict(label='1998', count=10),
-                                              dict(label='123', count=10),
-                                              dict(label='abcd', count=1),
-                                              dict(label='2005', count=50),
-                                              dict(label='97675', count=10),
-                                              dict(label='1990', count=20),
-                                              dict(label='1995', count=5),
-                                              dict(label='2009', count=30),
-                                              dict(label='2001', count=10),
-                                              dict(label='2011', count=25)])]
-
-            expected_born_data = [dict(categories=[dict(label='0-10', count=105),
-                                                   dict(label='10-20', count=25),
-                                                   dict(label='20-30', count=20)])]
-
-            self.assertEquals(self.org.organize_categories_data('born', born_api_data), expected_born_data)
-
-            self.assertEquals(self.org.organize_categories_data('registration', [dict(categories=[])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 0, 'label': '03/31/14'},
-                                                {'count': 0, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-            with self.assertRaises(ValueError):
-                self.org.organize_categories_data('registration',
-                                                  [dict(categories=[dict(label='26-9-2013 21:30', count=20)])])
-
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2013-09-26T21:30:00Z',
-                                                                                       count=20)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 0, 'label': '03/31/14'},
-                                                {'count': 0, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2014-03-31T21:30:00Z',
-                                                                                       count=20)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 20, 'label': '03/31/14'},
-                                                {'count': 0, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2014-03-31T21:30:00Z',
-                                                                                       count=20),
-                                                                                  dict(label='2014-04-03T20:54:00Z',
-                                                                                       count=15)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 35, 'label': '03/31/14'},
-                                                {'count': 0, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2014-03-31T21:30:00Z',
-                                                                                       count=20),
-                                                                                  dict(label='2014-04-03T20:54:00Z',
-                                                                                       count=15),
-                                                                                  dict(label='2014-04-08T18:43:00Z',
-                                                                                       count=10)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 35, 'label': '03/31/14'},
-                                                {'count': 10, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2014-03-31T21:30:00Z',
-                                                                                       count=20),
-                                                                 dict(label='2014-04-03T20:54:00Z',  count=15),
-                                                                 dict(label='2014-04-08T18:43:00Z', count=10),
-                                                                 dict(label='2014-10-10T12:54:00Z', count=100)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 35, 'label': '03/31/14'},
-                                                {'count': 10, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            # support parsing of label from datetime fields
-            self.assertEquals(self.org.organize_categories_data('registration',
-                                                                [dict(categories=[dict(label='2014-03-31T21:30:00Z',
-                                                                                       count=20),
-                                                                                  dict(label='2014-04-03T20:54:00Z',
-                                                                                       count=15),
-                                                                                  dict(label='2014-04-08T18:43:00Z',
-                                                                                       count=10),
-                                                                                  dict(label='2014-10-10T12:54:00Z',
-                                                                                       count=100)])]),
-                              [dict(categories=[{'count': 0, 'label': '03/24/14'}, {'count': 35, 'label': '03/31/14'},
-                                                {'count': 10, 'label': '04/07/14'}, {'count': 0, 'label': '04/14/14'},
-                                                {'count': 0, 'label': '04/21/14'}, {'count': 0, 'label': '04/28/14'},
-                                                {'count': 0, 'label': '05/05/14'}, {'count': 0, 'label': '05/12/14'},
-                                                {'count': 0, 'label': '05/19/14'}, {'count': 0, 'label': '05/26/14'},
-                                                {'count': 0, 'label': '06/02/14'}, {'count': 0, 'label': '06/09/14'},
-                                                {'count': 0, 'label': '06/16/14'}, {'count': 0, 'label': '06/23/14'},
-                                                {'count': 0, 'label': '06/30/14'}, {'count': 0, 'label': '07/07/14'},
-                                                {'count': 0, 'label': '07/14/14'}, {'count': 0, 'label': '07/21/14'},
-                                                {'count': 0, 'label': '07/28/14'}, {'count': 0, 'label': '08/04/14'},
-                                                {'count': 0, 'label': '08/11/14'}, {'count': 0, 'label': '08/18/14'},
-                                                {'count': 0, 'label': '08/25/14'}, {'count': 0, 'label': '09/01/14'},
-                                                {'count': 0, 'label': '09/08/14'}, {'count': 0, 'label': '09/15/14'},
-                                                {'count': 0, 'label': '09/22/14'}])])
-
-            self.assertEquals(self.org.organize_categories_data('occupation', [dict(categories=[])]),
-                              [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('occupation',
-                                                                [dict(categories=[dict(label='All Responses',
-                                                                                       count=20)])]),
-                              [dict(categories=[])])
-            self.assertEquals(self.org.organize_categories_data('occupation',
-                                                                [dict(categories=[dict(label='All Responses', count=20),
-                                                                                  dict(label='Student', count=50)])]),
-                              [dict(categories=[dict(label='Student', count=50)])])
-
-            self.assertEquals(self.org.organize_categories_data('occupation',
-                                                                [dict(categories=[dict(label='Student', count=500),
-                                                                                  dict(label='Player', count=300),
-                                                                                  dict(label='Journalist', count=50),
-                                                                                  dict(label='Actor', count=30),
-                                                                                  dict(label='Manager', count=150),
-                                                                                  dict(label='All Responses', count=20),
-                                                                                  dict(label='Teacher', count=10),
-                                                                                  dict(label='Officer', count=8),
-                                                                                  dict(label='Nurse', count=5),
-                                                                                  dict(label='Cameraman', count=5),
-                                                                                  dict(label='Writer', count=3),
-                                                                                  dict(label='Photographer', count=2),
-                                                                                  dict(label='DJ', count=1),
-                                                                                  dict(label='Mechanic', count=1),
-                                                                                  dict(label='Engineer', count=1),
-                                                                                  dict(label='Professor', count=1)])]),
-
-
-                              [dict(categories=[dict(label='Student', count=500),
-                                                dict(label='Player', count=300),
-                                                dict(label='Journalist', count=50),
-                                                dict(label='Actor', count=30),
-                                                dict(label='Manager', count=150),
-                                                dict(label='Teacher', count=10),
-                                                dict(label='Officer', count=8),
-                                                dict(label='Nurse', count=5),
-                                                dict(label='Cameraman', count=5)
-                                                ])])
+            mock_get_boundaries.return_value = boundaries
+            self.assertEqual(self.org.get_country_geojson(),
+                             dict(type="FeatureCollection",
+                                  features=[dict(type="Feature",
+                                                 geometry=dict(type='MultiPolygon', coordinates=[[1, 2], [3, 4]]),
+                                                 properties=dict(name='Burundi', id="R195269", level=1))]))
+            self.assertEqual(self.org.get_state_geojson("R195269"),
+                             dict(type="FeatureCollection",
+                                  features=[dict(type="Feature",
+                                                 geometry=dict(type='MultiPolygon', coordinates=[[5, 6], [7, 8]]),
+                                                 properties=dict(name='Bujumbura', id="R195270", level=2))]))
+            # we get None if no value in dict
+            self.assertIsNone(self.org.get_state_geojson("R11"))
 
     def test_org_create(self):
         create_url = reverse("orgs.org_create")
@@ -784,10 +590,8 @@ class OrgTest(DashTest):
 
     def test_org_edit(self):
 
-        with patch('dash.orgs.models.API') as mock:
-            mock.return_value.get_country_geojson.return_value = dict(type="FeatureCollection",
-                                                                      features=[
-                                                                          dict(type='Feature',
+        with patch('dash.orgs.models.Org.get_country_geojson') as mock:
+            mock.return_value = dict(type="FeatureCollection", features=[ dict(type='Feature',
                                                                                properties=dict(id="R3713501",
                                                                                                level=1,
                                                                                                name="Abia"),
@@ -795,7 +599,7 @@ class OrgTest(DashTest):
                                                                                              coordinates=[[[[7, 5]]]]
                                                                                              )
                                                                                )
-                                                                      ])
+                                                                               ])
 
             edit_url = reverse("orgs.org_edit")
 
