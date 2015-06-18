@@ -57,6 +57,11 @@ class UserTest(SmartminTest):
         self.assertEquals(new_admin.email, 'washington@nyaruka.com')
         self.assertFalse(User.objects.filter(username='denzel@nyaruka.com'))
 
+        # check that our tweaks to the auth model allow longer username/email values
+        new_admin.username = 'denzel@getashorteremailaddressplease.com'
+        new_admin.email = 'denzel@getashorteremailaddressplease.com'
+        new_admin.save()
+
 
 class DashTest(SmartminTest):
 
