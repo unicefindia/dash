@@ -2,7 +2,7 @@
 -e git+https://github.com/rapidpro/rapidpro-python.git@master#egg=rapidpro-python-2.0
 celery-with-redis
 django>=1.7.2,<1.9
-django-compressor<2.0
+django-compressor
 django-guardian
 django-redis
 django-timezones
