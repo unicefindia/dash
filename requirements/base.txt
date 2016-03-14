@@ -1,7 +1,7 @@
--e git+https://github.com/nyaruka/smartmin.git@master#egg=smartmin-1.8.1
+-e git+https://github.com/nyaruka/smartmin.git@django_19#egg=smartmin-1.8.1
 -e git+https://github.com/rapidpro/rapidpro-python.git@master#egg=rapidpro-python-2.0
 celery-with-redis
-django>=1.7.2,<1.9
+django>=1.8.0,<2.0
 django-compressor
 django-guardian
 django-redis
