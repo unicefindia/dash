@@ -90,19 +90,6 @@ MIDDLEWARE_CLASSES = (
 warnings.filterwarnings('error', r"DateTimeField received a naive datetime",
                         RuntimeWarning, r'django\.db\.models\.fields')
 
-TEMPLATE_CONTEXT_PROCESSORS = (
-    'django.contrib.auth.context_processors.auth',
-    'django.core.context_processors.debug',
-    'django.core.context_processors.i18n',
-    'django.core.context_processors.media',
-    'django.core.context_processors.static',
-    'django.contrib.messages.context_processors.messages',
-    'django.core.context_processors.request',
-    'dash.orgs.context_processors.user_group_perms_processor',
-    'dash.orgs.context_processors.set_org_processor',
-)
-
-
 ROOT_URLCONF = 'dash_test_runner.urls'
 
 WSGI_APPLICATION = 'dash_test_runner.wsgi.application'
@@ -181,20 +168,32 @@ STATICFILES_FINDERS = (
     # 'django.contrib.staticfiles.finders.DefaultStorageFinder',
 )
 
-# List of callables that know how to import templates from various sources.
-TEMPLATE_LOADERS = (
-    'hamlpy.template.loaders.HamlPyFilesystemLoader',
-    'hamlpy.template.loaders.HamlPyAppDirectoriesLoader',
-    'django.template.loaders.filesystem.Loader',
-    'django.template.loaders.app_directories.Loader',
-    # 'django.template.loaders.eggs.Loader',
-)
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
+        'OPTIONS': {
+            'loaders': [
+                'hamlpy.template.loaders.HamlPyFilesystemLoader',
+                'hamlpy.template.loaders.HamlPyAppDirectoriesLoader',
+                'django.template.loaders.filesystem.Loader',
+                'django.template.loaders.app_directories.Loader',
+            ],
+            'context_processors': [
+                'django.contrib.auth.context_processors.auth',
+                'django.core.context_processors.debug',
+                'django.core.context_processors.i18n',
+                'django.core.context_processors.media',
+                'django.core.context_processors.static',
+                'django.contrib.messages.context_processors.messages',
+                'django.core.context_processors.request',
+                'dash.orgs.context_processors.user_group_perms_processor',
+                'dash.orgs.context_processors.set_org_processor',
+            ],
+        },
+    },
+]
 
-TEMPLATE_DIRS = (
-    # Put strings here, like "/home/html/django_templates" or "C:/www/django/templates".
-    # Always use forward slashes, even on Windows.
-    # Don't forget to use absolute paths, not relative paths.
-)
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',  # this is default

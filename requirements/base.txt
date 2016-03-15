@@ -1,4 +1,5 @@
 -e git+https://github.com/nyaruka/smartmin.git@django_19#egg=smartmin-1.8.1
+-e git+https://github.com/nyaruka/HamlPy.git@64b910eb489b68614fea63b77cbf8aeb44b825b1#egg=hamlpy-0.82.2
 -e git+https://github.com/rapidpro/rapidpro-python.git@master#egg=rapidpro-python-2.0
 celery-with-redis
 django>=1.8.0,<2.0
@@ -7,7 +8,6 @@ django-guardian
 django-redis
 django-timezones
 enum34
-hamlpy
 Pillow
 phonenumbers
 psycopg2

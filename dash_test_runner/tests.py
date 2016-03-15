@@ -47,7 +47,8 @@ class UserTest(SmartminTest):
 
         post_data = dict(username='denzel@nyaruka.com', first_name='Denzel', last_name='Washington',
                          email='washington@nyaruka.com', old_password='Administrator',
-                         new_password='Washington2', confirm_new_password='Washington2')
+                         new_password='Washington2', confirm_new_password='Washington2',
+                         loc=profile_url)
 
         response = self.client.post(profile_url, post_data, follow=True)
         self.assertEquals(response.status_code, 200)
