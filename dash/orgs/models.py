@@ -5,7 +5,7 @@ import random
 import pytz
 
 from dash.dash_email import send_dash_email
-from dash.utils import datetime_to_ms
+from dash.utils import datetime_to_ms, get_obj_cacheable
 from datetime import datetime
 from django.conf import settings
 from django.contrib.auth.models import User, Group
@@ -18,6 +18,8 @@ from smartmin.models import SmartModel
 from temba_client.v1 import TembaClient as TembaClient1
 from temba_client.v2 import TembaClient as TembaClient2
 
+# groups used for different org roles
+DEFAULT_ORG_GROUPS = ('Administrators', 'Editors', 'Viewers')
 
 STATE = 1
 DISTRICT = 2
@@ -39,18 +41,6 @@ class Org(SmartModel):
     logo = models.ImageField(
         upload_to='logos', null=True, blank=True,
         help_text=_("The logo that should be used for this organization"))
-
-    administrators = models.ManyToManyField(
-        User, verbose_name=_("Administrators"), related_name="org_admins",
-        help_text=_("The administrators in your organization"))
-
-    viewers = models.ManyToManyField(
-        User, verbose_name=_("Viewers"), related_name="org_viewers",
-        help_text=_("The viewers in your organization"))
-
-    editors = models.ManyToManyField(
-        User, verbose_name=_("Editors"), related_name="org_editors",
-        help_text=_("The editors in your organization"))
 
     language = models.CharField(
         verbose_name=_("Language"), max_length=64, null=True, blank=True,
@@ -120,36 +110,37 @@ class Org(SmartModel):
             self.save()
 
     def get_org_admins(self):
-        return self.administrators.all()
+        return User.objects.filter(org_roles__org=self, org_roles__group=Group.objects.get(name='Administrators'))
 
     def get_org_editors(self):
-        return self.editors.all()
+        return User.objects.filter(org_roles__org=self, org_roles__group=Group.objects.get(name='Editors'))
 
     def get_org_viewers(self):
-        return self.viewers.all()
+        return User.objects.filter(org_roles__org=self, org_roles__group=Group.objects.get(name='Viewers'))
 
     def get_org_users(self):
-        org_users = self.get_org_admins() | self.get_org_editors() | self.get_org_viewers()
-        return org_users.distinct()
+        return User.objects.filter(org_roles__org=self).distinct()
 
     def get_user_org_group(self, user):
-        if user in self.get_org_admins():
-            user._org_group = Group.objects.get(name="Administrators")
-        elif user in self.get_org_editors():
-            user._org_group = Group.objects.get(name="Editors")
-        elif user in self.get_org_viewers():
-            user._org_group = Group.objects.get(name="Viewers")
-        else:
-            user._org_group = None
+        """
+        Users can have multiple roles in an org - this returns the first role using order of ORG_GROUPS
+        """
+        return get_obj_cacheable(user, '_org_group', lambda: self._get_user_org_group(user))
 
-        return getattr(user, '_org_group', None)
+    def _get_user_org_group(self, user):
+        user_groups_by_name = {group.name: group for group in UserRole.get_org_groups(self, user)}
 
-    def get_user(self):
-        user = self.administrators.filter(is_active=True).first()
-        if user:
-            org_user = user
-            org_user.set_org(self)
-            return org_user
+        for group_name in getattr(settings, 'ORG_GROUPS', DEFAULT_ORG_GROUPS):
+            if group_name in user_groups_by_name.keys():
+                return user_groups_by_name[group_name]
+
+        return None
+
+    def grant_role(self, user, group_name):
+        UserRole.grant(self, user, group_name)
+
+    def revoke_role(self, user, group_name):
+        UserRole.revoke(self, user, group_name)
 
     def get_temba_client(self, api_version=1):
         if api_version not in (1, 2):
@@ -256,61 +247,32 @@ class Org(SmartModel):
     def get_task_state(self, task_key):
         return TaskState.get_or_create(self, task_key)
 
-    @classmethod
-    def create_user(cls, email, password):
-        user = User.objects.create_user(username=email, email=email, password=password)
-        return user
-
-    @classmethod
-    def get_org(cls, user):
-        if not user:
-            return None
-
-        if not hasattr(user, '_org'):
-            org = Org.objects.filter(administrators=user, is_active=True).first()
-            if org:
-                user._org = org
-
-        return getattr(user, '_org', None)
-
     def __str__(self):
         return self.name
 
 
-def get_org(obj):
-    return getattr(obj, '_org', None)
+class UserRole(models.Model):
+    org = models.ForeignKey(Org, related_name='user_roles')
 
-User.get_org = get_org
+    user = models.ForeignKey(User, related_name='org_roles')
 
+    group = models.ForeignKey(Group, related_name='org_roles')
 
-def set_org(obj, org):
-    obj._org = org
+    @classmethod
+    def grant(cls, org, user, group_name):
+        if not cls.objects.filter(org=org, user=user, group__name=group_name):
+            cls.objects.create(org=org, user=user, group=Group.objects.get(name=group_name))
 
-User.set_org = set_org
+    @classmethod
+    def revoke(cls, org, user, group_name):
+        cls.objects.filter(org=org, user=user, group__name=group_name).delete()
 
+    @classmethod
+    def get_org_groups(cls, org, user):
+        return Group.objects.filter(org_roles__org=org, org_roles__user=user)
 
-def get_user_orgs(user):
-    if user.is_superuser:
-        return Org.objects.all()
-    user_orgs = user.org_admins.all() | user.org_editors.all() | user.org_viewers.all()
-    return user_orgs.distinct()
-
-User.get_user_orgs = get_user_orgs
-
-
-def get_org_group(obj):
-    org_group = None
-    org = obj.get_org()
-    if org:
-        org_group = org.get_user_org_group(obj)
-    return org_group
-
-User.get_org_group = get_org_group
-
-
-USER_GROUPS = (('A', _("Administrator")),
-               ('E', _("Editor")),
-               ('V', _("Viewer")))
+    class Meta:
+        unique_together = ('org', 'user', 'group')
 
 
 class Invitation(SmartModel):
@@ -326,8 +288,7 @@ class Invitation(SmartModel):
         verbose_name=_("Secret"), max_length=64, unique=True,
         help_text=_("a unique code associated with this invitation"))
 
-    user_group = models.CharField(
-        max_length=1, choices=USER_GROUPS, default='V', verbose_name=_("User Role"))
+    group = models.ForeignKey(Group, verbose_name=_("User Role"), null=True)
 
     def save(self, *args, **kwargs):
         if not self.secret:
@@ -434,3 +395,35 @@ class TaskState(models.Model):
 
     class Meta:
         unique_together = ('org', 'task_key')
+
+
+# =============================================================================================
+# Monkey patching for user model
+# =============================================================================================
+
+def _get_org(user):
+    return getattr(user, '_org', None)
+
+
+def _set_org(user, org):
+    user._org = org
+
+
+def _get_user_orgs(user):
+    if user.is_superuser:
+        return Org.objects.all()
+
+    return Org.objects.filter(user_roles=user, is_active=True).distinct()
+
+
+def _get_org_group(user, org=None):
+    if not org:
+        org = user.get_org()
+
+    return org.get_user_org_group(user)
+
+
+User.get_org = _get_org
+User.set_org = _set_org
+User.get_user_orgs = _get_user_orgs
+User.get_org_group = _get_org_group

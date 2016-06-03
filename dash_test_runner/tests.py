@@ -134,7 +134,7 @@ class DashTest(SmartminTest):
         else:
             org = Org.objects.create(subdomain=subdomain, name=name, language='en', created_by=user, modified_by=user)
 
-        org.administrators.add(user)
+        org.grant_role(user, "Administrators")
 
         self.assertEquals(Org.objects.filter(subdomain=subdomain).count(), 1)
         return Org.objects.get(subdomain=subdomain)
@@ -579,7 +579,7 @@ class OrgTest(DashTest):
         self.assertTrue(Org.objects.filter(name="kLab"))
         org = Org.objects.get(name="kLab")
         self.assertEquals(User.objects.all().count(), 5)
-        self.assertTrue(org.administrators.filter(username="alicefox"))
+        self.assertTrue(org.get_org_admins().filter(username="alicefox"))
         self.assertEquals(org.timezone, "Africa/Kigali")
 
         # allow may empty domain orgs
@@ -894,8 +894,8 @@ class OrgTest(DashTest):
         self.login(self.admin)
         self.admin.set_org(self.org)
 
-        self.org.editors.add(self.editor)
-        self.org.administrators.add(self.user)
+        self.org.grant_role(self.editor, "Editors")
+        self.org.grant_role(self.user, "Administrators")
 
         response = self.client.get(manage_accounts_url, SERVER_NAME="uganda.ureport.io")
 
