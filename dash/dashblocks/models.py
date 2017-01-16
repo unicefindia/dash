@@ -1,6 +1,10 @@
 from __future__ import unicode_literals
 
+from functools import partial
+
 from dash.orgs.models import Org
+from dash.utils import generate_file_path
+
 from django.db import models
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.translation import ugettext_lazy as _
@@ -148,7 +152,7 @@ class DashBlock(SmartModel):
 class DashBlockImage(SmartModel):
     dashblock = models.ForeignKey(DashBlock, related_name='images')
     image = models.ImageField(
-        upload_to='dashblock_images/', width_field="width",
+        upload_to=partial(generate_file_path, 'dashblock_images'), width_field="width",
         height_field="height")
     caption = models.CharField(max_length=64)
     priority = models.IntegerField(default=0, blank=True, null=True)

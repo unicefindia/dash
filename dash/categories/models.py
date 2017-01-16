@@ -2,8 +2,10 @@
 from __future__ import unicode_literals
 
 import six
+from functools import partial
 
 from dash.orgs.models import Org
+from dash.utils import generate_file_path
 from django.db import models
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.translation import ugettext_lazy as _
@@ -19,7 +21,7 @@ class Category(SmartModel):
     name = models.CharField(max_length=64,
                             help_text=_("The name of this category"))
 
-    image = models.ImageField(upload_to='categories', null=True, blank=True,
+    image = models.ImageField(upload_to=partial(generate_file_path, 'categories'), null=True, blank=True,
                               help_text=_("An optional image that can describe this category"))
 
     org = models.ForeignKey(Org, related_name='categories',
@@ -55,7 +57,7 @@ class CategoryImage(SmartModel):
     category = models.ForeignKey(Category, related_name='images',
                                  help_text=_("The category this image represents"))
 
-    image = models.ImageField(upload_to='categories',
+    image = models.ImageField(upload_to=partial(generate_file_path, 'categories'),
                               help_text=_("The image file to use"))
 
     def __str__(self):

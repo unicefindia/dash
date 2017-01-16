@@ -3,8 +3,11 @@ from __future__ import unicode_literals
 import json
 import random
 
+from functools import partial
+
+
 from dash.dash_email import send_dash_email
-from dash.utils import datetime_to_ms
+from dash.utils import datetime_to_ms, generate_file_path
 from datetime import datetime
 from django.conf import settings
 from django.contrib.auth.models import User, Group
@@ -370,7 +373,7 @@ class OrgBackground(SmartModel):
     background_type = models.CharField(
         max_length=1, choices=BACKGROUND_TYPES, default='P', verbose_name=_("Background type"))
 
-    image = models.ImageField(upload_to='org_bgs', help_text=_("The image file"))
+    image = models.ImageField(upload_to=partial(generate_file_path, 'org_bgs'), help_text=_("The image file"))
 
 
 class TaskState(models.Model):

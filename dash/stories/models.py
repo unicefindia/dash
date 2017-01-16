@@ -1,8 +1,11 @@
 from __future__ import unicode_literals
 
+from functools import partial
+
 from dash.categories.models import Category
 from dash.orgs.models import Org
 from django.db import models
+from dash.utils import generate_file_path
 from django.utils.translation import ugettext_lazy as _
 from smartmin.models import SmartModel
 
@@ -131,5 +134,5 @@ class StoryImage(SmartModel):
     story = models.ForeignKey(Story, related_name="images",
                               help_text=_("The story to associate to"))
 
-    image = models.ImageField(upload_to='stories',
+    image = models.ImageField(upload_to=partial(generate_file_path, 'stories'),
                               help_text=_("The image file to use"))
