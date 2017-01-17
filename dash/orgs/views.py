@@ -353,8 +353,7 @@ class OrgCRUDL(SmartCRUDL):
         def get_form(self):
             form = super(OrgCRUDL.ManageAccounts, self).get_form()
             self.group_fields = dict()
-            self.add_check_fields(form, self.org_users, self.get_object().pk,
-                                  self.group_fields)
+            self.add_check_fields(form, self.org_users, self.get_object().pk, self.group_fields)
 
             return form
 
