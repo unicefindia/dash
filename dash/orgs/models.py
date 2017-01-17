@@ -40,7 +40,7 @@ class Org(SmartModel):
         help_text=_("The name of this organization"))
 
     logo = models.ImageField(
-        upload_to='logos', null=True, blank=True,
+        upload_to=partial(generate_file_path, 'logos'), null=True, blank=True,
         help_text=_("The logo that should be used for this organization"))
 
     administrators = models.ManyToManyField(

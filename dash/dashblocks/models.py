@@ -83,7 +83,7 @@ class DashBlock(SmartModel):
         blank=True, null=True,
         help_text=_("The body of text for this content block, optional"))
     image = models.ImageField(
-        blank=True, null=True, upload_to='dashblocks',
+        blank=True, null=True, upload_to=partial(generate_file_path, 'dashblocks'),
         help_text=_("Any image that should be displayed with this content "
                     "block, optional"))
     color = models.CharField(
