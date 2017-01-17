@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from uuid import uuid4
 
+
 def intersection(*args):
     """
     Return the intersection of lists, using the first list to determine item order
