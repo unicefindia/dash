@@ -30,6 +30,17 @@ BOUNDARY_LEVEL_1_KEY = 'geojson:%d'
 BOUNDARY_LEVEL_2_KEY = 'geojson:%d:%s'
 
 
+class OrgManager(models.Manager):
+    def countries(self):
+        return self.get_queryset().filter(state__isnull=True, country__isnull=True)
+
+    def states(self):
+        return self.get_queryset().filter(state__isnull=True, country__isnull=False)
+
+    def districts(self):
+        return self.get_queryset().filter(state__isnull=False, country__isnull=True)
+
+
 @python_2_unicode_compatible
 class Org(SmartModel):
     name = models.CharField(
@@ -79,6 +90,16 @@ class Org(SmartModel):
         null=True, blank=True,
         help_text=_("JSON blob used to store configuration information "
                     "associated with this organization"))
+
+    country = models.ForeignKey(
+        'self', related_name="org_country", null=True, blank=True,
+        help_text=_("The country organization"))
+
+    state = models.ForeignKey(
+        'self', related_name="org_state", null=True, blank=True,
+        help_text=_("The state organization"))
+
+    objects = OrgManager()
 
     def get_config(self, name, default=None):
         config = getattr(self, '_config', None)

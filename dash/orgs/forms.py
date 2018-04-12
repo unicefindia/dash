@@ -43,6 +43,12 @@ class OrgForm(forms.ModelForm):
             administrators = administrators.exclude(pk__lt=0)
             self.fields['administrators'].queryset = administrators
 
+        # Filter countries
+        self.fields['country'].queryset = Org.objects.filter(country__isnull=True, state__isnull=True)
+
+        # Filter states
+        self.fields['state'].queryset = Org.objects.filter(state__isnull=True, country__isnull=False)
+
     def clean_domain(self):
         domain = self.cleaned_data['domain'] or ""
         domain = domain.strip().lower()
@@ -53,6 +59,14 @@ class OrgForm(forms.ModelForm):
             return domain
         else:
             return None
+
+    def clean(self):
+        country = self.cleaned_data['country']
+        state = self.cleaned_data['state']
+
+        if country and state:
+            raise forms.ValidationError(_("You cannot select country and state at same time."))
+        return self.cleaned_data
 
     class Meta:
         fields = forms.ALL_FIELDS
