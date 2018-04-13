@@ -140,13 +140,15 @@ class OrgCRUDL(SmartCRUDL):
 
     class Create(SmartCreateView):
         form_class = OrgForm
-        fields = ('name', 'language', 'timezone', 'subdomain',
-                  'domain', 'logo', 'administrators')
+        fields = ('name', 'country', 'state', 'language',
+                  'timezone', 'subdomain', 'domain',
+                  'api_token', 'logo', 'administrators')
 
     class Update(SmartUpdateView):
         form_class = OrgForm
-        fields = ('is_active', 'name', 'language', 'timezone', 'subdomain',
-                  'domain', 'logo', 'administrators')
+        fields = ('is_active', 'name', 'country', 'state',
+                  'language', 'timezone', 'subdomain',
+                  'domain', 'api_token', 'logo', 'administrators')
 
     class List(SmartListView):
         fields = ('name', 'timezone', 'created_on', 'modified_on')
