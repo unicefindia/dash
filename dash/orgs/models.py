@@ -8,6 +8,7 @@ from django.contrib.auth.models import User, Group
 from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.utils import timezone
+from django.utils.functional import cached_property
 from django.utils.encoding import force_text, python_2_unicode_compatible
 from django.utils.translation import ugettext_lazy as _
 from pydoc import locate
@@ -26,6 +27,17 @@ BOUNDARY_CACHE_TIME = getattr(settings, 'API_BOUNDARY_CACHE_TIME', 60 * 60 * 24 
 BOUNDARY_CACHE_KEY = 'org:%d:boundaries'
 BOUNDARY_LEVEL_1_KEY = 'geojson:%d'
 BOUNDARY_LEVEL_2_KEY = 'geojson:%d:%s'
+
+
+class OrgManager(models.Manager):
+    def countries(self):
+        return self.get_queryset().filter(state__isnull=True, country__isnull=True)
+
+    def states(self):
+        return self.get_queryset().filter(state__isnull=True, country__isnull=False)
+
+    def districts(self):
+        return self.get_queryset().filter(state__isnull=False, country__isnull=True)
 
 
 @python_2_unicode_compatible
@@ -72,6 +84,34 @@ class Org(SmartModel):
         default=dict,
         help_text=_("JSON blob used to store configuration information "
                     "associated with this organization"))
+
+    country = models.ForeignKey(
+        'self', related_name="org_country", null=True, blank=True,
+        help_text=_("The country organization"))
+
+    state = models.ForeignKey(
+        'self', related_name="org_state", null=True, blank=True,
+        help_text=_("The state organization"))
+
+    objects = OrgManager()
+
+    @cached_property
+    def is_country(self):
+        if self.is_district or self.is_state:
+            return False
+        return True
+
+    @cached_property
+    def is_state(self):
+        if self.country and self.state is None:
+            return True
+        return False
+
+    @cached_property
+    def is_district(self):
+        if self.country is None and self.state:
+            return True
+        return False
 
     def get_backend(self, backend_slug='rapidpro'):
         backend = self.backends.filter(is_active=True, slug=backend_slug).first()
