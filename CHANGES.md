@@ -1,3 +1,43 @@
+1.3.2 (2018-04-06)
+==================
+ * Use . paths on the Org config to set and retrieve the values
+ * Use a foreign key for the backend fields and use OrgBackend object instead of slug as arguments
+
+1.3.1 (2018-03-22)
+==================
+ * Add OrgBackend model to store the configurations for backends
+ * Remove `api_token` key from Org config
+ * Add DATA_API_BACKEND_TYPES settings for backend types
+
+1.3 (2018-03-15)
+==================
+ * Remove Org api_token field
+ * Convert Org config field to JSONField
+ * Support multiple backend configurations
+ * Add DATA_API_BACKENDS_CONFIG settings
+ * Add BACKENDS_ORG_CONFIG_FIELDS settings
+ * Migrations to move existing backend API specific under rapidpro config
+
+1.2.7 (2018-03-08)
+==================
+ * Fix migrations
+
+1.2.6 (2018-03-08)
+==================
+ * Fix migrations
+
+1.2.5 (2018-03-08)
+==================
+ * Restructure org config dict
+
+1.2.4 (2018-01-09)
+==================
+ * Fix derive fields to include read only fields
+
+1.2.3 (2018-01-09)
+==================
+ * Add way to display read only org config fields to admins
+
 1.2.2 (2017-12-04)
 ==================
  * Improve chunks util method so that it doesn't load the entire source iterator into a list

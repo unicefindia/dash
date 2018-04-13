@@ -1,7 +1,7 @@
 from __future__ import unicode_literals
 
 
-from dash.orgs.models import Org
+from dash.orgs.models import Org, OrgBackend
 from dash.utils.sync import BaseSyncer
 from django.db import models
 from django.utils.translation import ugettext as _
@@ -16,6 +16,8 @@ class Contact(models.Model):
     name = models.CharField(verbose_name=_("Name"), max_length=128)
 
     is_active = models.BooleanField(default=True)
+
+    backend = models.ForeignKey(OrgBackend)
 
     @classmethod
     def lock(cls, org, uuid):
@@ -32,8 +34,14 @@ class ContactSyncer(BaseSyncer):
         return {
             'org': org,
             'uuid': remote.uuid,
-            'name': remote.name
+            'name': remote.name,
+            'backend': self.backend
         }
 
     def update_required(self, local, remote, remote_as_kwargs):
         return local.name != remote.name
+
+
+class APIBackend(object):
+    def __init__(self, backend):
+        self.backend = backend
