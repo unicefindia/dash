@@ -101,6 +101,24 @@ class Org(SmartModel):
 
     objects = OrgManager()
 
+    @cached_property
+    def is_country(self):
+        if self.is_district or self.is_state:
+            return False
+        return True
+
+    @cached_property
+    def is_state(self):
+        if self.country and self.state is None:
+            return True
+        return False
+
+    @cached_property
+    def is_district(self):
+        if self.country is None and self.state:
+            return True
+        return False
+
     def get_config(self, name, default=None):
         config = getattr(self, '_config', None)
 
